@@ -2,10 +2,18 @@
 	kp :: float(),
 	ki :: float(),
 	kd :: float(),
+
+	kp_a :: float(),
+	ki_a :: float(),
+	kd_a :: float(),
+
 	t :: integer(),
 	integral :: float(),
+	integral_a :: float(),
 	double_integral :: float(),
 	last_e :: float(),
+	imax :: float(),
+	imin :: float(),
 	y :: float()
 }).
 
