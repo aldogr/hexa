@@ -35,13 +35,15 @@ I2C2_SDC	| P9_20		| I2C Clock
 
 
 [Calibrating IMU](https://www.youtube.com/watch?v=uH7iQrH3GpA)
+-----
 
 Hexacopter diagram
+-----
 
       A        f
        \      /
         \    /
-  b-----  ^  -----E
+  b_____  ^  _____E
         /    \
        /      \
       C        d
@@ -60,10 +62,11 @@ F = S#motorconf.e + 0.5 * roll + 0.866 * pitch + yaw,
 
 
 Finite State machine & instructions
+-----
 
 
 
-			     <- Land  (motors to minimun)
+			    	    <- Land  (motors to minimun)
 	    init(stop) [0]   <- Reset (motors to 0)
 		|
 		v
@@ -80,18 +83,15 @@ Finite State machine & instructions
 ________________________
 
 Land and Reset are also States, the jump from and to states init, Calibrate, Armed, Auto and Manual, is with the command[Synchorous]:
------
 
 	$ state_machine:next().
 
-and to Land:
------
+and to Land (one is for Asynchronous and the other for Synchronous):
 
 	$ state_machine:land().
 	$ state_machine:sync_land().
 
 and to Reset:
------
 
 	$ state_machine:reset().
 	$ state_machine:sync_reset().
