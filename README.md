@@ -40,17 +40,7 @@ I2C2_SDC	| P9_20		| I2C Clock
 Hexacopter diagram
 -----
 
-      A        f
-       \      /
-        \    /
-  b_____  ^  _____E
-        /    \
-       /      \
-      C        d
-
-
-
-and motor display
+A at the front left, counterclockwise and motor display:
 
 A = S#motorconf.c - 0.5 * roll + 0.866 * pitch + yaw,	
 B = S#motorconf.b - 1 * roll + 0 * pitch - yaw,	
@@ -66,7 +56,7 @@ Finite State machine & instructions
 
 
 
-			    	     <- Land  (motors to minimun)
+			    <- Land  (motors to minimun)
 	    init(stop) [0]   <- Reset (motors to 0)
 		|
 		v
@@ -76,9 +66,9 @@ Finite State machine & instructions
 	      Armed [3]
 		|
 		v
-		      ->
+		     ->
 	    Auto[]    Manual[]
-		      <-
+		     <-
 
 ________________________
 
