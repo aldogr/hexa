@@ -42,9 +42,9 @@ Hexacopter diagram
 
 A at the front left, counterclockwise and motor display:
 
-A = S#motorconf.c - 0.5 * roll + 0.866 * pitch + yaw,	
-B = S#motorconf.b - 1 * roll + 0 * pitch - yaw,	
-C = S#motorconf.f - 0.5 * roll - 0.866 * pitch - yaw,	
+A = S#motorconf.c - 0.5 * roll + 0.866 * pitch + yaw,
+B = S#motorconf.b - 1 * roll + 0 * pitch - yaw,
+C = S#motorconf.f - 0.5 * roll - 0.866 * pitch - yaw,
 D = S#motorconf.e + 0.5 * roll - 0.866 * pitch - yaw,
 E = S#motorconf.a + 1 * roll + 0 * pitch + yaw,
 F = S#motorconf.e + 0.5 * roll + 0.866 * pitch + yaw,
@@ -56,7 +56,7 @@ Finite State machine & instructions
 
 
 
-			    <- Land  (motors to minimun)
+			     <- Land  (motors to minimun)
 	    init(stop) [0]   <- Reset (motors to 0)
 		|
 		v
@@ -67,7 +67,7 @@ Finite State machine & instructions
 		|
 		v
 		     ->
-	    Auto[]    Manual[]
+	      Auto[]    Manual[]
 		     <-
 
 ________________________
