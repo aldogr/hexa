@@ -66,7 +66,7 @@ Finite State machine & instructions
 
 
 
-			    	    <- Land  (motors to minimun)
+			    	     <- Land  (motors to minimun)
 	    init(stop) [0]   <- Reset (motors to 0)
 		|
 		v
@@ -76,9 +76,9 @@ Finite State machine & instructions
 	      Armed [3]
 		|
 		v
-		     ->
-	      Auto[]    Manual[]
-		     <-
+		      ->
+	    Auto[]    Manual[]
+		      <-
 
 ________________________
 
@@ -101,8 +101,14 @@ States:
 
 Init(stop): Software initialised, but not Armed, motors stop 
 Calibrate: Calibrate the motors
+
 Armed: The Hexacopter is ready to fly
+
 Auto: Automatic mode
+
 Manual: Manual mode
+
 Land: Emergency landing, motors to minimun throttle (controller up or down?)
+
 Reset: stop motors
+
