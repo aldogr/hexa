@@ -4,10 +4,16 @@
 	z :: integer()
 }).
 
+-record(vector_xyzf, {
+	x :: float(),
+	y :: float(),
+	z :: float()
+}).
+
 -record(euler, {
-	heading :: integer(),
-	roll :: integer(),
-	pitch :: integer()
+	heading :: float(),
+	roll :: float(),
+	pitch :: float()
 }).
 
 -record(quaternion, {
@@ -18,12 +24,12 @@
 }).
 
 -record(imudata, {
-	gravity ::  #vector_xyz{},
-	acceleration :: #vector_xyz{},
-	magnet :: #vector_xyz{},
-	rotation :: #vector_xyz{},
-	linear_acceleration :: #vector_xyz{},
+	gravity ::  #vector_xyzf{}, 
+	acceleration :: #vector_xyzf{},
+	magnet :: #vector_xyz{}, %int is enough, we just need direction
+	rotation :: #vector_xyzf{},
+	linear_acceleration :: #vector_xyzf{},
 	temperature :: integer(),
-	euler :: #euler{},
-	quaternion :: #quaternion{}
+	euler :: #euler{}
+	%quaternion :: #quaternion{}
 }).

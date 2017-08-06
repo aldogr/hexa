@@ -90,16 +90,18 @@ init([]) ->
 	timer:sleep(50), %sleep 50ms to let the sensor initialise
     {ok, false}.
 
-handle_call(update_data, _From, _State) ->
-	{ok, Data} = get_imudata(),
-    {reply, {ok, Data}, Data};
+handle_call(update_data, _From, State) ->
+	case get_imudata() of
+		{ok, Data} -> {reply, Data, Data};
+		{error, io, _V} -> {reply, State, State} %% @TODO Stay at old state? Or let it crash? Log!
+	end;
 
 handle_call(get_data, _From, State) ->
 	case State of
-		false -> {ok, Data} = get_imudata();
-		_ -> Data = State
+		false -> {ok, Data} = get_imudata(); %% this definitely should not crash
+		State -> Data = State
 	end,
-	{reply, {ok, Data}, Data}.
+	{reply, Data, Data}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -119,14 +121,21 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc Reads values from I2C and returns an #imudata record.
 -spec get_imudata() -> {ok, _Data :: #imudata{}} | {error, _Error}.
 get_imudata() ->
-	Data = #imudata{gravity = i2c_parse(vector, ?REG_GRV_DATA_X_LSB),
-		acceleration = i2c_parse(vector, ?REG_ACC_DATA_X_LSB),
-		magnet = i2c_parse(vector, ?REG_MAG_DATA_X_LSB),
-		rotation = i2c_parse(vector, ?REG_GYR_DATA_X_LSB),
-		linear_acceleration = i2c_parse(vector, ?REG_LIA_DATA_X_LSB),
-		euler = i2c_parse(euler, ?REG_EUL_HEADING_LSB),
-		temperature = i2c_parse(int, ?REG_TEMP)},
-	{ok, Data}.
+	try
+		{ok, Gravity} = i2c_parse(vectorf, ?REG_GRV_DATA_X_LSB, 100),
+		{ok, Acceleration} = i2c_parse(vectorf, ?REG_ACC_DATA_X_LSB, 100), %1 m/s 2 = 100 LSB
+		{ok, Magnet} = i2c_parse(vector, ?REG_MAG_DATA_X_LSB), %We need direction only, 1 μT = 16 LSB
+		{ok, Rotation} = i2c_parse(vectorf, ?REG_GYR_DATA_X_LSB, 16), %1 Dps = 16 LSB
+		{ok, Linear_acceleration} = i2c_parse(vectorf, ?REG_LIA_DATA_X_LSB, 100), %1 m/s 2 = 100 LSB
+		{ok, Euler} = i2c_parse(euler, ?REG_EUL_HEADING_LSB, 16), %from documentation: 1 degree = 16 LSB
+		{ok, Temperature} = i2c_parse(int, ?REG_TEMP),
+		{ok, #imudata{gravity = Gravity, acceleration = Acceleration,
+			magnet = Magnet, rotation = Rotation,
+			linear_acceleration = Linear_acceleration, euler = Euler,
+			temperature = Temperature}}
+	catch
+		error:{badmatch, V} -> {error, io, V}
+	end.
 
 %% Helpers:
 
@@ -162,17 +171,35 @@ i2c_read(Register, Length) ->
 %% @returns Vector in 100 * m/s^2
 -spec i2c_parse(Type :: atom(),Start :: integer()) -> {ok, #vector_xyz{}}.
 i2c_parse(vector, Start) ->
-	{ok, <<X:2/little-signed-integer-unit:8,
-		Y:2/little-signed-integer-unit:8,
-		Z:2/little-signed-integer-unit:8>>} = i2c_read(Start, 6),
-	#vector_xyz{ x=X, y=Y, z=Z};
-
-i2c_parse(euler, Start) ->
-	{ok, <<X:2/little-signed-integer-unit:8,
-		Y:2/little-signed-integer-unit:8,
-		Z:2/little-signed-integer-unit:8>>} = i2c_read(Start, 6),
-	#euler{ heading=X, roll=Y, pitch=Z};
-
+	case i2c_read(Start, 6) of
+		{ok, <<X:2/little-signed-integer-unit:8,
+			Y:2/little-signed-integer-unit:8,
+			Z:2/little-signed-integer-unit:8>>} -> {ok, #vector_xyz{ x=X, y=Y, z=Z}};
+		{error, Error} -> {error, Error}
+	end;
+	
 i2c_parse(int, Start) ->
-	{ok, <<Temp:1/little-signed-integer-unit:8>>} = i2c_read(Start, 1),
-	Temp.
+	case i2c_read(Start, 1) of
+		{ok, <<Temp:1/little-signed-integer-unit:8>>} -> {ok, Temp};
+		{error, Error} -> {error, Error}
+	end.
+
+%% @doc Vector of floats
+-spec i2c_parse(Type :: atom(),Start :: integer(), Divider :: integer()) -> {ok, #vector_xyz{}}.
+i2c_parse(vectorf, Start, Divider) ->
+	case i2c_read(Start, 6) of
+		{ok, <<X:2/little-signed-integer-unit:8,
+			Y:2/little-signed-integer-unit:8,
+			Z:2/little-signed-integer-unit:8>>} ->
+				{ok, #vector_xyzf{ x=X/Divider, y=Y/Divider, z=Z/Divider}};
+		{error, Error} -> {error, Error}
+	end;
+
+i2c_parse(euler, Start, Divider) ->
+	case i2c_read(Start, 6) of
+		{ok, <<X:2/little-signed-integer-unit:8,
+			Y:2/little-signed-integer-unit:8,
+			Z:2/little-signed-integer-unit:8>>} ->
+				{ok, #euler{ heading=X/Divider, roll=Y/Divider, pitch=Z/Divider}};
+		{error, Error} -> {error, Error}
+	end.

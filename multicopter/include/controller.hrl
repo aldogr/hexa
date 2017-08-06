@@ -7,7 +7,7 @@
 	ki_a :: float(),
 	kd_a :: float(),
 
-	t :: integer(),
+	t :: any(),
 	integral :: float(),
 	integral_a :: float(),
 	double_integral :: float(),
@@ -18,10 +18,12 @@
 }).
 
 -record(controllerstate, {
-	timer :: reference(),
+	timer :: any(),
 	pid_pitch :: #pidstate{},
 	pid_yaw :: #pidstate{},
 	pid_rollx :: #pidstate{},
 	pid_rolly :: #pidstate{},
-	motors :: #motorconf{}
+	motors :: #motorconf{},
+	t :: any(),
+	fps :: float()
 }).

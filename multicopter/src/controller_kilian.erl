@@ -13,74 +13,108 @@
 -include("../include/pwm.hrl").
 -include("../include/controller.hrl").
 
-timeout() -> 20. %2ms
 
+timeout() -> 1. %Milliseconds
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Controller Parameters
--define(PITCH_KP, 0).
--define(PITCH_KI, 0).
--define(PITCH_KD, 0).
+% Config
+conf(yaw_kp) ->
+	{ok, Val} = application:get_env(k_yaw_kp),
+	Val;
+	
+conf(yaw_ki) ->
+	{ok, Val} = application:get_env(k_yaw_ki),
+	Val;
 
--define(YAW_KP, 0).
--define(YAW_KI, 0).
--define(YAW_KD, 0).
+conf(yaw_kd) ->
+	{ok, Val} = application:get_env(k_yaw_kd),
+	Val;
 
--define(ROLLX_KP, 0).
--define(ROLLX_KI, 0).
--define(ROLLX_KD, 0).
+conf(rollx_kp) ->
+	{ok, Val} = application:get_env(k_rollx_kp),
+	Val;
 
--define(ROLLY_KP, 0).
--define(ROLLY_KI, 0).
--define(ROLLY_KD, 0).
+conf(rollx_ki) ->
+	{ok, Val} = application:get_env(k_rollx_ki),
+	Val;
 
-%%%%%%%%%%%%%%%%%%%%
+conf(rollx_kd) ->
+	{ok, Val} = application:get_env(k_rollx_kd),
+	Val;
 
+conf(rolly_kp) ->
+	{ok, Val} = application:get_env(k_rolly_kp),
+	Val;
 
+conf(rolly_ki) ->
+	{ok, Val} = application:get_env(k_rolly_ki),
+	Val;
+
+conf(rolly_kd) ->
+	{ok, Val} = application:get_env(k_rolly_kd),
+	Val;
+
+conf(mmin) ->
+	{ok, Val} = application:get_env(k_mmin),
+	Val;
+
+conf(mmax) ->
+	{ok, Val} = application:get_env(k_mmax),
+	Val;
+
+conf(imin) ->
+	{ok, Val} = application:get_env(k_imin),
+	Val;
+
+conf(imax) ->
+	{ok, Val} = application:get_env(k_imax),
+	Val;
+
+conf(ymin) ->
+	{ok, Val} = application:get_env(k_ymin),
+	Val;
+
+conf(ymax) ->
+	{ok, Val} = application:get_env(k_ymax),
+	Val.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-
-%% @TODO: Trap exit, of spawned, so the whole thing crashes and gets restarted!
-%% Stabilize Rot_z with Yaw
-%% Stabilize Rot_x,y with Roll
-%% Stabilize Lin_Acc z with Pitch
-%% PID eg: y(t) = K_d * Rot_z + K_p * Int( Rot_t * dt) + K_i * Int ( Int( Rot_z * dt) * dt )
-%% PID with Sums:
-%% E_Rot_z = Soll_Rot_z - Sens_Rot_z
-%% Dt = T_now - T_alt
-%% Integral = Integral + E_Rot_z * Dt
-%% Double_Integral = Double_Integral + Dt * Integral
-%% T = T_now - T_start
-%% y(t) = K_d * E_Rot_z + K_p * Integral + K_i * Double_Integral
-
-%% Stabilize Rot x,y with Gravity vector
-%% stabilize yaw with magnet? -> project xyz components on area of gravity vector for heading (length doesn't play a role, microtesla)
-%% different controller for height? PD????
-
 
 init([]) ->
 	io:format("~p starting~n", [?MODULE]),
 	process_flag(trap_exit, true),
 	
-	%register(upid, spawn(fun() -> updater() end)),
-	%MyId = self(),
-	%Tref = timer:send_interval(100, upid, {MyId, update}),
-	Timer = erlang:send_after(10, self(), iteration),
-	St = #controllerstate.timer = Timer,
-	
-	Pidpitch = #pidstate{kp = ?PITCH_KP, ki = ?PITCH_KI, kd = ?PITCH_KD},
-	Pidyaw = #pidstate{kp = ?YAW_KP, ki = ?YAW_KI, kd = ?YAW_KD},
-	Pidrollx = #pidstate{kp = ?ROLLX_KP, ki = ?ROLLX_KI, kd = ?ROLLX_KD},
-	Pidrolly = #pidstate{kp = ?ROLLY_KP, ki = ?ROLLY_KI, kd = ?ROLLY_KD},
+	Pidyaw = #pidstate{
+		kp = conf(yaw_kp),
+		ki = conf(yaw_ki),
+		kd = conf(yaw_kd),
+		t = now(), integral = 0, double_integral = 0,
+		last_e = 0, y = 0
+	},
+	Pidrollx = #pidstate{
+		kp = conf(rollx_kp),
+		ki = conf(rollx_ki),
+		kd = conf(rollx_kd),
+		t = now(), integral = 0, double_integral = 0,
+		last_e = 0, y = 0
+	},
+	Pidrolly = #pidstate{
+		kp = conf(rolly_kp),
+		ki = conf(rolly_ki),
+		kd = conf(rolly_kd),
+		t = now(), integral = 0, double_integral = 0,
+		last_e = 0, y = 0
+	},
+	Motors = #motorconf{a = 0.0, b = 0.0, c = 0.0, d = 0.0, e = 0.0, f = 0.0},
 	
 	St = #controllerstate{
-		timer = Timer,
-		pid_pitch = Pidpitch,
+		timer = undefined,
 		pid_yaw = Pidyaw,
 		pid_rollx = Pidrollx,
-		pid_rolly = Pidrolly
+		pid_rolly = Pidrolly,
+		motors = Motors,
+		t = now(),
+		fps = 0.0
 	},
 	{ok, St}.
 
@@ -90,51 +124,85 @@ handle_call(get_data, _From, State) ->
 handle_call(_What, _From, State) ->
     {reply, false, State}.
 
+%% @doc Starts recurring execution of the controller
+handle_cast(start, State) ->
+	%% @TODO Remove forcing the state
+	gen_server:cast(pwm, {setState, flying}),
+	Timer = erlang:send_after(timeout(), self(), iteration),
+	NewS = State#controllerstate{timer = Timer},
+	{noreply, NewS};
+
+%% @doc Stops recurring execution
+handle_cast(stop, State) ->
+	%% @TODO same as above	
+	gen_server:cast(pwm, {setState, stop}),
+	case State#controllerstate.timer of
+		undefined ->
+			{noreply, State};
+		Timer ->
+			erlang:cancel_timer(Timer),
+			{noreply, State#controllerstate{timer = undefined}}
+	end;
+
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(iteration, State) ->
 	erlang:cancel_timer(State#controllerstate.timer),
+	Now = now(),
+	Delta = timer:now_diff(Now, State#controllerstate.t), % Microseconds
+	LastFps = 1000000.0 / Delta,
+	%% Make it a bit less jittery
+	NewFps = 0.25 * LastFps + 0.75 * State#controllerstate.fps,
 	
-	{ok, Nominal_values} = gen_server:call(remote, get_nominal_values),
-	{ok, Sensor_data} = gen_server:call(imo_bno055, update_data),
+	Nominal_values = gen_server:call(remote, get_nominal_values),
+	Sensor_data = gen_server:call(imu_bno055, update_data),
+	
+	OriginalMotorState = #motorconf{a = 0.0, b = 0.0, c = 0.0, d = 0.0, e = 0.0, f = 0.0},
+	
+	PitchMotorState = calc_motors(pitch, OriginalMotorState,
+		0.2 * (Nominal_values#nominal_values.pitch + 3)), %-1.0...1.0->0.4...0.8
 	
 	%% Run the controllers
-	{SPitch, YPitch} = run_controller(State#controllerstate.pid_pitch,
-		%% integrate this???
-		Nominal_values#nominal_values.pitch,
-		Sensor_data#imudata.linear_acceleration#vector_xyz.z),
-	{SYaw, YYaw} = run_controller(SPitch#controllerstate.pid_yaw,
-		Nominal_values#nominal_values.yaw,
-		Sensor_data#imudata.rotation#vector_xyz.z),
-	{SRollx, YRollx} = run_controller(SYaw#controllerstate.pid_rollx,
+	{ok, SRollx, YRollx} = run_controller(State#controllerstate.pid_rollx,
 		Nominal_values#nominal_values.roll_x,
-		Sensor_data#imudata.rotation#vector_xyz.x),
-	{SRolly, YRolly} = run_controller(SRollx#controllerstate.pid_rolly,
+		-Sensor_data#imudata.rotation#vector_xyzf.y,
+		15.0),%dps
+	{ok, SRolly, YRolly} = run_controller(State#controllerstate.pid_rolly,
 		Nominal_values#nominal_values.roll_y,
-		Sensor_data#imudata.rotation#vector_xyz.y),
-
-	%% @TODO Implement Y_i_max!
-
-	%% Calculate new motor duties
-	%% @TODO Does the order even matter?
-
-	OriginalMotorState = State#controllerstate.motors,
-	RollMotorState = calc_motors(roll, OriginalMotorState, YRollx, YRolly),
-	YawMotorState = calc_motors(yaw, RollMotorState#controllerstate.motors, YYaw),
-	PitchMotorState = calc_motors(pitch, YawMotorState#controllerstate.motors, YPitch),
+		-Sensor_data#imudata.rotation#vector_xyzf.x,
+		15.0),%dps
 	
+	RollMotorState = calc_motors(roll, PitchMotorState, YRollx, YRolly),
+	
+	{ok, SYaw, YYaw} = run_controller(State#controllerstate.pid_yaw,
+		Nominal_values#nominal_values.yaw,
+		-Sensor_data#imudata.rotation#vector_xyzf.z,
+		8.0),%dps
+	YawMotorState = calc_motors(yaw, RollMotorState, YYaw),
+	
+	%Disable Pitch controller for first tests
+	%{ok, SPitch, YPitch} = run_controller(State#controllerstate.pid_pitch,
+	%	Nominal_values#nominal_values.pitch,
+	%	Sensor_data#imudata.linear_acceleration#vector_xyzf.z,
+	%	1.0),%acceleration
+	%	
+	%PitchMotorState = calc_motors(pitch, YawMotorState, YPitch),
+	
+	FinalMotorState = YawMotorState,
 	%% Set Motors:
-	gen_server:call(pwm, {setAllMotors, PitchMotorState}),
+	gen_server:cast(pwm, {setAllMotors, FinalMotorState}),
 	%% @TODO Fine-Tune timeout
-	Timer = erlang:send_after(timeout()), %% Pause the execution, time for sth else
+	Timer = erlang:send_after(timeout(), self(), iteration), %% Pause the execution, time for sth else
 	
 	NewState = #controllerstate{timer = Timer,
-		pid_pitch = SPitch,
+		%pid_pitch = SPitch,
 		pid_yaw = SYaw,
 		pid_rollx = SRollx,
 		pid_rolly = SRolly,
-		motors = PitchMotorState
+		motors = FinalMotorState,
+		t = Now,
+		fps = NewFps
 	},
 	{noreply, NewState};
 
@@ -143,48 +211,41 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, State) ->
 	io:format("~p stopping~n", [?MODULE]),
-	timer:cancel(State),
-	upid ! {self(), shutdown},
+	timer:cancel(State#controllerstate.timer),
+	%upid ! {self(), shutdown},
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%~ updater() ->
-	%~ receive
-		%~ {_From, update} ->
-			%~ gen_server:call(imu_bno055, update_data),
-			%~ updater();
-		%~ {_From, shutdown} -> ok
-	%~ end.
-%calc error
-%call pid cntrstat and K_is
-%ret output
-%set output
-
-run_controller(PidState, NominalValues, Sensor) ->
-	E_pitch = NominalValues - Sensor,
-	{_NewS, _Y} = pid_integral(PidState,  E_pitch).
+run_controller(PidState, NominalValues, Sensor, Scaling) ->
+	E_pitch = Scaling * NominalValues - Sensor,
+	{ok ,_NewS, _Y} = pid(PidState,  E_pitch).
 
 pid(S, E) ->
-	Dt = now() - S#pidstate.t,
-	Integral = S#pidstate.integral + E * Dt,
-	Derivative = (S#pidstate.last_e - E)/E,
-	Y = S#pidstate.kd * Derivative + S#pidstate.kp * E + S#pidstate.ki * Integral,
+	Dt = timer:now_diff(now(), S#pidstate.t),
+	Integral = limit(S#pidstate.integral + E * Dt,
+		conf(imin),
+		conf(imax)
+	),
+	Derivative = (S#pidstate.last_e - E)/Dt,
+	Y = limit(S#pidstate.kd * Derivative + S#pidstate.kp * E + S#pidstate.ki * Integral,
+		conf(ymin),
+		conf(ymax)
+	),
 	NewS = S#pidstate{t = now(), integral = Integral, y = Y, last_e = E},
 	{ok, NewS, Y}.
-	
-pid_integral(S, E) ->
-	Dt = now() - S#pidstate.t,
-	Integral = S#pidstate.integral + E * Dt,
-	Double_Integral = S#pidstate.double_integral + Integral * Dt,
-	Y = S#pidstate.kd * E + S#pidstate.kp * Integral + S#pidstate.ki * Double_Integral,
-	%%	 acc					vel							%position
-	%%   rot					ang							%
-	NewS = S#pidstate{t = now(), integral = Integral,
-		double_integral = Double_Integral, y = Y},
-	{ok, NewS, Y}.
-	
+
+%pid_integral(S, E) ->
+	%Dt = timer:now_diff(now(), S#pidstate.t),
+	%Integral = S#pidstate.integral + E * Dt,
+	%Double_Integral = S#pidstate.double_integral + Integral * Dt,
+	%Y = S#pidstate.kd * E + S#pidstate.kp * Integral + S#pidstate.ki * Double_Integral,
+	%	 acc					vel							%position
+	%   rot					ang							%
+	%NewS = S#pidstate{t = now(), integral = Integral,
+		%double_integral = Double_Integral, y = Y},
+	%{ok, NewS, Y}.
 
 %% @returns new #motorconf
 %% @doc simply add the value to all motors
@@ -195,7 +256,8 @@ calc_motors(pitch, S, Y) ->
 	D = S#motorconf.d + Y,
 	E = S#motorconf.e + Y,
 	F = S#motorconf.f + Y,
-	_NewMotor = S#motorconf{a = A, b = B, c = C, d = D, e = E, f = F};
+	NewMotor = S#motorconf{a = A, b = B, c = C, d = D, e = E, f = F},
+	_LimitedMotor = limit_motors(NewMotor);
 
 %% @doc add to right rotating, substract from left rotating.
 calc_motors(yaw, S, Y) ->
@@ -206,15 +268,35 @@ calc_motors(yaw, S, Y) ->
 	D = S#motorconf.d - Z,
 	E = S#motorconf.e + Z,
 	F = S#motorconf.f - Z,
-	_NewMotor = S#motorconf{a = A, b = B, c = C, d = D, e = E, f = F}.
+	NewMotor = S#motorconf{a = A, b = B, c = C, d = D, e = E, f = F},
+	_LimitedMotor = limit_motors(NewMotor).
 
-%% @doc Combine X and Y. X roll. X is done by motors a(forw) and d(backw).
-%% 		Y is done by rotors b(backw), c(forw) and e(forw), and f(backw).
+%% @doc Combine X and Y. X roll. Y is done by motors b(forw) and e(backw).
+%% 		Y is done by rotors a(backw), c(forw) and d(forw), and f(backw).
 calc_motors(roll, S, Yx, Yy) -> 
 	A = S#motorconf.a - Yx,
 	B = S#motorconf.b - Yy,
-	C = S#motorconf.c - Yy,
+	C = S#motorconf.c + Yx,
 	D = S#motorconf.d + Yx,
 	E = S#motorconf.e + Yy,
-	F = S#motorconf.f + Yy,
-	_NewMotor = S#motorconf{a = A, b = B, c = C, d = D, e = E, f = F}.
+	F = S#motorconf.f - Yx,
+	NewMotor = S#motorconf{a = A, b = B, c = C, d = D, e = E, f = F},
+	_LimitedMotor = limit_motors(NewMotor).
+
+limit_motors(Motors) ->
+	[motorconf|MList] = tuple_to_list(Motors),
+	limit_motors(MList, []).
+
+limit_motors([], Conf) ->
+	list_to_tuple([motorconf|Conf]);
+	
+limit_motors([H|T], Conf) ->
+	Limited = limit(H, conf(mmin), conf(mmax)),
+	limit_motors(T, Conf ++ [Limited]).
+
+limit(Val, Min, Max) ->
+	if
+		Val >= Max -> Max;
+		Val =< Min -> Min;
+		true -> Val
+	end.

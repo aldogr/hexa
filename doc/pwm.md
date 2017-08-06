@@ -64,12 +64,12 @@ Battery					| 3S-4S LiPo
 
 *Not final yet, needs to be checked if compatible with possibly needed SPI or I2C bus interface*
 
-pwmOut		| Pin
------		|-----
-epwm0A		| P9_22 
-epwm0B		| P9_21
-epwm1A		| P9_14
-epwm1B		| P9_16
-epwm2A		| P8_19
-epwm2B		| P8_13
+pwmOut		| Pin		| Motor
+-----		|-----		|-----
+epwm0A		| P9_22 	| a
+epwm0B		| P9_21		| b
+epwm1A		| P9_14		| c 
+epwm1B		| P9_16		| d
+epwm2A		| P8_19		| e
+epwm2B		| P8_13		| f
 

@@ -8,6 +8,7 @@
          terminate/2,
          code_change/3]).
 
+-include("../include/common.hrl").
 -include("../include/remote.hrl").
 
 start_link() ->
@@ -16,11 +17,18 @@ start_link() ->
 init([]) ->
 	io:format("~p starting~n", [?MODULE]),
 	process_flag(trap_exit, true),
-	St = #nominal_values{pitch = 0, yaw = 0, roll_x = 0, roll_y = 0},
+	St = #nominal_values{pitch = 0.0, yaw = 0.0, roll_x = 0.0, roll_y = 0.0, emergency = false},
 	{ok, St}.
 
 handle_call(get_nominal_values, _From, State) ->
     {reply, State, State}.
+
+handle_cast({set, Val}, _State) ->
+	case Val#nominal_values.emergency of
+		true -> gen_server:cast(?CONTROLLERMODULE, stop);
+		_ -> ok
+	end,
+	{noreply, Val};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

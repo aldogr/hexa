@@ -14,15 +14,11 @@
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
+-include("../include/common.hrl").
 
 %%
 %%
 %%
--ifdef(ALDO).
--define(CONTROLLERMODULE, controller_aldo).
--else.
--define(CONTROLLERMODULE, controller_kilian).
--endif.
 
 %%====================================================================
 %% API functions
@@ -67,7 +63,20 @@ init([]) ->
 		permanent,
 		10000,
 		worker,
-		[connector]}
+		[connector]},
+	
+		{hc_sr04, {hc_sr04, start_link, []},
+		permanent,
+		10000,
+		worker,
+		[hc_sr04]},
+
+		{state_machine, {state_machine, start_link, []},
+		permanent,
+                10000,
+                worker,
+                [connector]}
+
 		]} }.
 
 %%====================================================================

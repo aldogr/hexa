@@ -8,3 +8,9 @@
 		e :: float(),
 		f :: float()
 	}).
+
+-record(motorstate,
+	{
+		motors :: #motorconf{},
+		st :: atom()
+	}).

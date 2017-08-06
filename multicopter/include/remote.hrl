@@ -1,6 +1,7 @@
 -record(nominal_values, {
-	pitch :: integer(),
-	yaw :: integer(),
-	roll_x :: integer(),
-	roll_y :: integer()
+	pitch :: float(),
+	yaw :: float(),
+	roll_x :: float(),
+	roll_y :: float(),
+	emergency :: atom()
 }).

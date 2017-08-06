@@ -29,15 +29,7 @@ def parseData(data):
 	# Int: temp
 	# TODO: Log bad format
 	packstring = 'h'*19+'f'*10
-	values = (grX, grY, grZ,
-		acX, acY,acZ,
-		maX, maY, maZ,
-		roX, roY, roZ,
-		laX, laY, laZ,
-		temp,
-		euHeading, euRoll, euPitch,
-		motora, motorb, motorc, motord, motore, motorf,
-		YPitch, YYaw, YRollx, YRolly)
+	print(len(data))
 	unp = struct.unpack(packstring, data)
 	ret = {'grX': unp[0],
 		'grY': unp[1],
@@ -98,7 +90,7 @@ class Connector:
 		
 	def getData(self):
 		rawdata = self.s.recv(4096)
-		data = parseData(rawData)
+		data = parseData(rawdata)
 		return data
 
 class DummyConnector:
@@ -136,7 +128,7 @@ class DummyConnector:
 		}
 		return data
 
-mycon = DummyConnector()
+mycon = Connector()
 mycon.connect()
 
 

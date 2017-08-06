@@ -1,12 +1,15 @@
 -module(connector).
 -behavior(gen_server).
 
+-include("../include/common.hrl").
 -include("../include/imu.hrl").
 -include("../include/pwm.hrl").
 -include("../include/controller.hrl").
+-include("../include/remote.hrl").
+-include("../include/sonar.hrl").
+
+
 %% @TODO: Transfer all gen_tcp stuff to use actual OTP behaviour!
-
-
 -export([start_link/0]).
 -export([init/1,
          handle_call/3,
@@ -15,6 +18,14 @@
          terminate/2,
          code_change/3]).
 
+% Config values:
+conf(port) ->
+	{ok, Port} = application:get_env(connector_port),
+	Port;
+
+conf(timeout) ->
+	{ok, Timeout} = application:get_env(connector_timeout),
+	Timeout.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -22,7 +33,7 @@ start_link() ->
 init([]) ->
 	io:format("~p starting~n", [?MODULE]),
 	process_flag(trap_exit, true),
-	{ok, Listen} = gen_tcp:listen(12000, [binary,
+	{ok, Listen} = gen_tcp:listen(conf(port), [binary,
 		{reuseaddr, true},
 		{active, true}]),
 	spawn(fun() -> connect(Listen) end),
@@ -50,54 +61,113 @@ connect(Listen) ->
 	spawn(fun() -> connect(Listen) end),
 	loop(Socket).
 
-%% @TODO Remove debug output
+%% @TODO Make getter calls async (use cast)
 loop(Socket) ->
 	receive
-		{tcp, Socket, Bin = <<"GET">>} ->
-			io:format("Server received binary = ~p~n", [Bin]),
-			{ok, ImoData} = gen_server:call(imu_bno055, get_data),
-			{ok, ControllerData} = gen_server:call(controller, get_data),
-			io:format("Got data, sending reply~n"),
-			{ok, BinaryData} = format_data(ImoData, ControllerData),
-			gen_tcp:send(Socket, BinaryData),
-			io:format("Sent to the socket: ~p~n", [BinaryData]),
+		{tcp, Socket, Bin} ->
+			process(Socket, Bin),
 			loop(Socket);
+			
 		{tcp_closed, Socket} ->
-			io:format("Socket closed~n")
+			io:format("Socket closed~n"),
+			emergency()
+	after conf(timeout) -> 
+		emergency(),
+		inet:close(Socket)
 	end.
 
+emergency() ->
+		gen_server:cast(?CONTROLLERMODULE, stop),
+		gen_server:cast(pwm, {setState, stop}),
+		io:format("EMERGENCY STOP~n").
 
--spec format_data(_ImoData :: #imudata{}, ControllerData :: #controllerstate{} ) -> {ok, _BinaryData :: <<>>} | {error, _Error}.
-format_data(ImoData, ControllerData) ->
+
+process(Socket, <<"GET", Tail/binary>>) ->
+	ImuData = gen_server:call(imu_bno055, get_data),
+	HeightData = gen_server:call(hc_sr04, get_height), %%untested
+	ControllerData = gen_server:call(?CONTROLLERMODULE, get_data),
+	RemoteData = gen_server:call(remote, get_nominal_values),
+	MotorData = pwm:getMotors(),
+	{ok, BinaryData} = format_data(ImuData, HeightData, ControllerData, RemoteData, MotorData),
+	gen_tcp:send(Socket, BinaryData),
+	process(Socket, Tail);
+	
+process(Socket, _Bin = <<"JOYSTICK", Pitch/float, Yaw/float,
+				Roll_x/float, Roll_y/float, IEmergency/integer, Tail/binary>>) ->
+	Val = #nominal_values{pitch = Pitch, yaw = Yaw,
+	roll_x = Roll_x, roll_y = Roll_y,
+	emergency = case IEmergency of
+		0 -> false;
+		_ -> true
+	end},
+	gen_server:cast(remote, {set, Val}),
+	process(Socket, Tail);
+
+% We are done with processing
+process(_Socket, <<>>) ->
+	ok.
+
+-spec format_data(_ImuData :: #imudata{}, HeightData :: #sonar{},
+	ControllerData :: #controllerstate{}, RemoteData :: #nominal_values{},
+	MotordData :: #motorconf{})
+		-> {ok, _BinaryData :: <<>>} | {error, _Error}.
+format_data(ImuData, HeightData, ControllerData, RemoteData, MotorData) ->
+	IEmergency = case RemoteData#nominal_values.emergency of
+		true -> 1;
+		false -> 0
+	end,
 	{ok,
 	<<
-	(ImoData#imudata.gravity#vector_xyz.x):2/little-signed-integer-unit:8,
-	(ImoData#imudata.gravity#vector_xyz.y):2/little-signed-integer-unit:8,
-	(ImoData#imudata.gravity#vector_xyz.z):2/little-signed-integer-unit:8,
-	(ImoData#imudata.acceleration#vector_xyz.x):2/little-signed-integer-unit:8,
-	(ImoData#imudata.acceleration#vector_xyz.y):2/little-signed-integer-unit:8,
-	(ImoData#imudata.acceleration#vector_xyz.z):2/little-signed-integer-unit:8,
-	(ImoData#imudata.magnet#vector_xyz.x):2/little-signed-integer-unit:8,
-	(ImoData#imudata.magnet#vector_xyz.y):2/little-signed-integer-unit:8,
-	(ImoData#imudata.magnet#vector_xyz.z):2/little-signed-integer-unit:8,
-	(ImoData#imudata.rotation#vector_xyz.x):2/little-signed-integer-unit:8,
-	(ImoData#imudata.rotation#vector_xyz.y):2/little-signed-integer-unit:8,
-	(ImoData#imudata.rotation#vector_xyz.z):2/little-signed-integer-unit:8,
-	(ImoData#imudata.linear_acceleration#vector_xyz.x):2/little-signed-integer-unit:8,
-	(ImoData#imudata.linear_acceleration#vector_xyz.y):2/little-signed-integer-unit:8,
-	(ImoData#imudata.linear_acceleration#vector_xyz.z):2/little-signed-integer-unit:8,
-	(ImoData#imudata.temperature):2/little-signed-integer-unit:8,
-	(ImoData#imudata.euler#euler.heading):2/little-signed-integer-unit:8,
-	(ImoData#imudata.euler#euler.roll):2/little-signed-integer-unit:8,
-	(ImoData#imudata.euler#euler.pitch):2/little-signed-integer-unit:8,
-	(ControllerData#controllerstate.motors#motorconf.a)/float,
-	(ControllerData#controllerstate.motors#motorconf.b)/float,
-	(ControllerData#controllerstate.motors#motorconf.c)/float,
-	(ControllerData#controllerstate.motors#motorconf.d)/float,
-	(ControllerData#controllerstate.motors#motorconf.e)/float,
-	(ControllerData#controllerstate.motors#motorconf.f)/float,
-	(ControllerData#controllerstate.pid_pitch#pidstate.y)/float,
+	(ImuData#imudata.gravity#vector_xyzf.x)/float,
+	(ImuData#imudata.gravity#vector_xyzf.y)/float,
+	(ImuData#imudata.gravity#vector_xyzf.z)/float,
+	
+	(ImuData#imudata.acceleration#vector_xyzf.x)/float,
+	(ImuData#imudata.acceleration#vector_xyzf.y)/float,
+	(ImuData#imudata.acceleration#vector_xyzf.z)/float,
+	
+	(ImuData#imudata.magnet#vector_xyz.x):2/big-signed-integer-unit:8,
+	(ImuData#imudata.magnet#vector_xyz.y):2/big-signed-integer-unit:8,
+	(ImuData#imudata.magnet#vector_xyz.z):2/big-signed-integer-unit:8,
+	
+	(ImuData#imudata.rotation#vector_xyzf.x)/float,
+	(ImuData#imudata.rotation#vector_xyzf.y)/float,
+	(ImuData#imudata.rotation#vector_xyzf.z)/float,
+	
+	(ImuData#imudata.linear_acceleration#vector_xyzf.x)/float,
+	(ImuData#imudata.linear_acceleration#vector_xyzf.y)/float,
+	(ImuData#imudata.linear_acceleration#vector_xyzf.z)/float,
+	
+	(ImuData#imudata.temperature):2/big-signed-integer-unit:8,
+	
+	(ImuData#imudata.euler#euler.heading)/float,
+	(ImuData#imudata.euler#euler.roll)/float,
+	(ImuData#imudata.euler#euler.pitch)/float,
+
+	(HeightData#sonar.height)/float,
+	
+	(MotorData#motorconf.a)/float,
+	(MotorData#motorconf.b)/float,
+	(MotorData#motorconf.c)/float,
+	(MotorData#motorconf.d)/float,
+	(MotorData#motorconf.e)/float,
+	(MotorData#motorconf.f)/float,
+	
+	%(ControllerData#controllerstate.pid_pitch#pidstate.y)/float,
 	(ControllerData#controllerstate.pid_yaw#pidstate.y)/float,
 	(ControllerData#controllerstate.pid_rollx#pidstate.y)/float,
-	(ControllerData#controllerstate.pid_rolly#pidstate.y)/float
+	(ControllerData#controllerstate.pid_rolly#pidstate.y)/float,
+	
+	(ControllerData#controllerstate.fps)/float,
+	
+	%(ControllerData#controllerstate.pid_pitch#pidstate.integral)/float,
+	(ControllerData#controllerstate.pid_yaw#pidstate.integral)/float,
+	(ControllerData#controllerstate.pid_rollx#pidstate.integral)/float,
+	(ControllerData#controllerstate.pid_rolly#pidstate.integral)/float,
+	
+	(RemoteData#nominal_values.pitch)/float,
+	(RemoteData#nominal_values.yaw)/float,
+	(RemoteData#nominal_values.roll_x)/float,
+	(RemoteData#nominal_values.roll_y)/float,
+	IEmergency/integer
 	>>}.
